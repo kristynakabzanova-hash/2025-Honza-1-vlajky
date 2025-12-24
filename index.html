@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Vlajky – klikni správně</title>
+  <style>
+    :root { --bg:#0b0f1a; --card:#111a2e; --text:#e8eefc; --muted:#a9b7df; --good:#25d07f; --bad:#ff4d4d; }
+    * { box-sizing: border-box; }
+    body{
+      margin:0; padding:24px;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background: radial-gradient(1200px 800px at 50% -200px, #1b2a57 0%, var(--bg) 55%);
+      color:var(--text);
+    }
+    .wrap{ max-width: 980px; margin: 0 auto; }
+    .top{
+      background: rgba(17,26,46,0.78);
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 16px;
+      padding: 16px 16px 14px;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+    }
+    h1{ margin:0 0 6px; font-size: 18px; font-weight: 700; color: var(--muted); letter-spacing: .2px; }
+    .promptRow{
+      display:flex; flex-wrap:wrap; gap:10px; align-items:baseline; justify-content:space-between;
+    }
+    .prompt{
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: .2px;
+    }
+    .progress{
+      font-size: 14px; color: var(--muted);
+      padding: 6px 10px;
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 999px;
+      background: rgba(255,255,255,0.04);
+    }
+    .status{
+      margin-top: 10px;
+      min-height: 22px;
+      font-size: 14px;
+      color: var(--muted);
+    }
+    .status.good{ color: var(--good); }
+    .status.bad{ color: var(--bad); }
+
+    .grid{
+      margin-top: 18px;
+      display:grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+    @media (max-width: 780px){
+      .grid{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .prompt{ font-size: 22px; }
+    }
+
+    button.flag{
+      appearance:none;
+      border: 1px solid rgba(255,255,255,0.14);
+      background: rgba(255,255,255,0.04);
+      border-radius: 16px;
+      padding: 10px;
+      cursor:pointer;
+      transition: transform .08s ease, border-color .12s ease, background .12s ease;
+      box-shadow: 0 10px 24px rgba(0,0,0,0.25);
+      overflow:hidden;
+    }
+    button.flag:active{ transform: scale(0.985); }
+    button.flag:hover{ border-color: rgba(255,255,255,0.25); background: rgba(255,255,255,0.06); }
+
+    .flagImg{
+      width: 100%;
+      aspect-ratio: 3 / 2;
+      object-fit: cover;
+      border-radius: 12px;
+      display:block;
+      background: rgba(0,0,0,0.20);
+    }
+
+    .hintBox{
+      margin-top: 18px;
+      background: rgba(17,26,46,0.78);
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 16px;
+      padding: 16px;
+      display:none;
+    }
+    .hintBox.show{ display:block; }
+    .hintTitle{ margin:0 0 8px; color: var(--muted); font-size: 14px; font-weight: 700; letter-spacing:.2px; }
+    .hintText{ margin:0; font-size: 24px; font-weight: 900; }
+    .smallNote{ margin-top:10px; font-size: 12px; color: rgba(233,241,255,0.55); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top" aria-live="polite">
+      <h1>Klikni na správnou vlajku</h1>
+      <div class="promptRow">
+        <div class="prompt">Hledej: <span id="targetName">—</span></div>
+        <div class="progress"><span id="stepNow">0</span>/8</div>
+      </div>
+      <div id="status" class="status">Klikni na vlajku odpovídající zemi.</div>
+    </div>
+
+    <div id="grid" class="grid" aria-label="Vlajky"></div>
+
+    <div id="hintBox" class="hintBox" aria-live="polite">
+      <p class="hintTitle">Nápověda</p>
+      <p class="hintText">Pod rádiem</p>
+      <p class="smallNote">Pokud uděláš chybu, začínáš znovu.</p>
+    </div>
+  </div>
+
+  <script>
+    // --- Config: filenames must match your repo (same folder as index.html) ---
+    // id: stable machine id (for your own mapping)
+    // label: what is shown to the player (rewrite these to Czech)
+    const FLAGS = [
+      { id: "andorra",  label: "Andorra",  file: "Andorra.png"  },
+      { id: "romania",  label: "Rumunsko",  file: "Romania.png"  },
+      { id: "iceland",  label: "Island",  file: "Iceland.png"  },
+      { id: "norway",   label: "Norsko",   file: "Norway.svg"   },
+      { id: "belgium",  label: "Belgie",  file: "Belgium.png"  },
+      { id: "germany",  label: "Německo",  file: "Germany.png"  },
+      { id: "monaco",   label: "Monako",   file: "Monaco.png"   },
+      { id: "poland",   label: "Polsko",   file: "Poland.png"   },
+    ];
+
+    const elGrid = document.getElementById("grid");
+    const elTarget = document.getElementById("targetName");
+    const elStatus = document.getElementById("status");
+    const elStepNow = document.getElementById("stepNow");
+    const elHintBox = document.getElementById("hintBox");
+
+    let sequence = []; // sequence of ids
+    let step = 0;
+    let locked = false;
+
+    function shuffle(arr){
+      const a = arr.slice();
+      for (let i = a.length - 1; i > 0; i--){
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    }
+
+    function setStatus(msg, kind){
+      elStatus.classList.remove("good","bad");
+      if (kind) elStatus.classList.add(kind);
+      elStatus.textContent = msg;
+    }
+
+    function labelForId(id){
+      const item = FLAGS.find(f => f.id === id);
+      return item ? item.label : id;
+    }
+
+    function buildGrid(){
+      elGrid.innerHTML = "";
+      const layout = shuffle(FLAGS);
+
+      for (const item of layout){
+        const btn = document.createElement("button");
+        btn.className = "flag";
+        btn.type = "button";
+        btn.id = `flag-${item.id}`;                // <-- stable DOM id you can target
+        btn.setAttribute("data-id", item.id);      // <-- stable data id
+        btn.setAttribute("aria-label", item.label);
+
+        const img = document.createElement("img");
+        img.className = "flagImg";
+        img.src = item.file;
+        img.alt = item.label;
+
+        btn.appendChild(img);
+
+        btn.addEventListener("click", () => handleClick(item.id), { passive: true });
+        elGrid.appendChild(btn);
+      }
+    }
+
+    function updatePrompt(){
+      const currentId = sequence[step];
+      elTarget.textContent = labelForId(currentId); // <-- shows label (rewrite to Czech)
+      elStepNow.textContent = String(step);
+    }
+
+    function newRound(message){
+      sequence = shuffle(FLAGS.map(f => f.id));
+      step = 0;
+      locked = false;
+      elHintBox.classList.remove("show");
+      buildGrid();
+      updatePrompt();
+      setStatus(message || "Klikni na vlajku odpovídající zemi.", null);
+    }
+
+    function win(){
+      elStepNow.textContent = "8";
+      elTarget.textContent = "Hotovo!";
+      setStatus("Skvělé! Vše správně.", "good");
+      elHintBox.classList.add("show");
+      locked = true;
+    }
+
+    function handleClick(clickedId){
+      if (locked) return;
+
+      const expectedId = sequence[step];
+      if (clickedId === expectedId){
+        step += 1;
+        setStatus("Správně!", "good");
+        if (step >= sequence.length){
+          win();
+        } else {
+          elStepNow.textContent = String(step);
+          elTarget.textContent = labelForId(sequence[step]);
+        }
+      } else {
+        locked = true;
+        setStatus("Špatně. Zkus to znovu.", "bad");
+        setTimeout(() => newRound("Začínáš znovu. Klikni na správnou vlajku."), 650);
+      }
+    }
+
+    // Start
+    newRound();
+  </script>
+</body>
+</html>
